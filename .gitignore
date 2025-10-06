@@ -1,0 +1,16 @@
+# Python / Backend
+__pycache__/
+venv/
+.env\
+
+# Node / Frontend
+node_modules/
+dist/
+.env*
+
+# Data
+backend/data/
+backend/flat_data/
+backend/flat_data.zip
+
+options_data_pranav_ma.py
