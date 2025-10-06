@@ -11,6 +11,6 @@ dist/
 # Data
 backend/data/
 backend/flat_data/
-backend/flat_data.zip
+backend/flat_data.tar.gz
 
 options_data_pranav_ma.py
