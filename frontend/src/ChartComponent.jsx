@@ -1,6 +1,7 @@
 // src/ChartComponent.jsx
 import React, { useEffect, useRef } from 'react';
-import { createChart, CandlestickSeries } from 'lightweight-charts';
+// --- FIX #1: Import all the necessary series types ---
+import { createChart, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
 
 const ChartComponent = ({ data, timeframe }) => {
   const chartContainerRef = useRef();
@@ -9,38 +10,47 @@ const ChartComponent = ({ data, timeframe }) => {
   useEffect(() => {
     if (!chartContainerRef.current) return;
     
-    const handleResize = () => { /* ... resize logic ... */ };
+    const handleResize = () => {
+      if (chartRef.current && chartContainerRef.current) {
+        chartRef.current.applyOptions({
+          width: chartContainerRef.current.clientWidth,
+          height: chartContainerRef.current.clientHeight,
+        });
+      }
+    };
     
-    const chart = createChart(chartContainerRef.current, { /* ... chart options ... */ });
+    const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: chartContainerRef.current.clientHeight,
+      layout: { background: { type: 'solid', color: '#0a0a0a' }, textColor: '#94a3b8' },
+      grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
+      timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#475569' },
+      rightPriceScale: { borderColor: '#475569' },
+    });
     chartRef.current = chart;
 
-    // --- Price (Candlestick) Series ---
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#26a69a', downColor: '#ef5350',
       wickUpColor: '#26a69a', wickDownColor: '#ef5350',
       borderVisible: false,
     });
 
-    // --- Volume Series (Histogram) ---
-    const volumeSeries = chart.addHistogramSeries({
+    // --- FIX #2: Use the correct v5 syntax for HistogramSeries ---
+    const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
-      priceScaleId: '', // Puts it on a separate pane at the bottom
+      priceScaleId: '',
     });
-    // Adjust pane heights: 70% for price, 30% for volume
     chart.priceScale('').applyOptions({ scaleMargins: { top: 0.7, bottom: 0 } });
 
-    // --- Open Interest Series (Line) ---
-    const openInterestSeries = chart.addLineSeries({
-      color: '#FFD700', // Gold color for OI
+    // --- FIX #3: Use the correct v5 syntax for LineSeries ---
+    const openInterestSeries = chart.addSeries(LineSeries, {
+      color: '#FFD700',
       lineWidth: 2,
-      priceScaleId: 'oi', // A custom ID to create a new pane
+      priceScaleId: 'oi',
     });
-    // Adjust pane heights again for the new OI pane
     chart.priceScale('oi').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     
-    
     if (data && data.length > 0) {
-      // --- Prepare Data for Each Series ---
       const candlestickData = [];
       const volumeData = [];
       const openInterestData = [];
@@ -59,7 +69,6 @@ const ChartComponent = ({ data, timeframe }) => {
         volumeData.push({
           time: timestamp,
           value: d.volume,
-          // Color volume bar based on price change
           color: d.close >= d.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)',
         });
 
@@ -69,12 +78,10 @@ const ChartComponent = ({ data, timeframe }) => {
         });
       });
 
-      // --- Set the data for all three series ---
       candlestickSeries.setData(candlestickData);
       volumeSeries.setData(volumeData);
       openInterestSeries.setData(openInterestData);
       
-      // --- Zoom Logic (same as before) ---
       let rightOffset = 10;
       switch (timeframe) {
         case '1min': rightOffset = 70; break;
@@ -86,7 +93,13 @@ const ChartComponent = ({ data, timeframe }) => {
     }
     
     window.addEventListener('resize', handleResize);
-    return () => { /* ... cleanup logic ... */ };
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
+    };
   }, [data, timeframe]);
 
   return <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />;
