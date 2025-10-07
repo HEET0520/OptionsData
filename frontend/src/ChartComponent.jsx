@@ -1,89 +1,198 @@
 // src/ChartComponent.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { createChart, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
+import { createChart, CandlestickSeries } from 'lightweight-charts';
 
 // Helper to format large numbers
 const formatLargeNumber = (num) => {
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(2)}M`;
   if (num >= 1_000) return `${(num / 1_000).toFixed(2)}K`;
-  return num.toString();
+  return num?.toString() ?? '0';
+};
+
+// Helper to normalize time for lightweight-charts v5
+const normalizeChartTime = (raw) => {
+  if (!raw) return undefined;
+  if (typeof raw === 'number') return raw; // assume UNIX seconds
+  if (typeof raw === 'string' && raw.includes('T')) {
+    return Math.floor(new Date(raw).getTime() / 1000);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
+    return Math.floor(new Date(raw).getTime() / 1000);
+  }
+  const parsed = Date.parse(raw);
+  if (!isNaN(parsed)) return Math.floor(parsed / 1000);
+  return undefined;
 };
 
 const ChartComponent = ({ data, timeframe }) => {
   const chartContainerRef = useRef();
   const chartRef = useRef(null);
-  // State to hold the data for the legend
   const [legendData, setLegendData] = useState(null);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
-    
-    const handleResize = () => { /* ... resize logic ... */ };
-    
-    const chart = createChart(chartContainerRef.current, { /* ... chart options ... */ });
+
+    const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: chartContainerRef.current.clientHeight,
+      layout: {
+        background: { color: '#131722' },
+        textColor: '#d1d4dc',
+      },
+      grid: {
+        vertLines: { color: '#242632' },
+        horzLines: { color: '#242632' }
+      },
+      crosshair: {
+        mode: 1,
+        vertLine: {
+          color: '#758696',
+          width: 1,
+          style: 3,
+          labelBackgroundColor: '#758696',
+        },
+        horzLine: {
+          color: '#758696',
+          width: 1,
+          style: 3,
+          labelBackgroundColor: '#758696',
+        },
+      }
+    });
     chartRef.current = chart;
 
-    const candlestickSeries = chart.addSeries(CandlestickSeries, { /* ... options ... */ });
-    const volumeSeries = chart.addSeries(HistogramSeries, { /* ... options ... */ });
-    const openInterestSeries = chart.addSeries(LineSeries, { /* ... options ... */ });
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      borderVisible: false,
+      wickUpColor: '#26a69a',
+      wickDownColor: '#ef5350'
+    });
 
-    // --- NEW: Subscribe to crosshair move event ---
-    chart.subscribeCrosshairMove(param => {
-      // Find the data for the current timestamp
+    chart.subscribeCrosshairMove((param) => {
       const candlestickPoint = param.seriesData.get(candlestickSeries);
-      const volumePoint = param.seriesData.get(volumeSeries);
-      const openInterestPoint = param.seriesData.get(openInterestSeries);
-
       if (candlestickPoint) {
         setLegendData({
           open: candlestickPoint.open.toFixed(2),
           high: candlestickPoint.high.toFixed(2),
           low: candlestickPoint.low.toFixed(2),
           close: candlestickPoint.close.toFixed(2),
-          volume: volumePoint ? formatLargeNumber(volumePoint.value) : 'N/A',
-          oi: openInterestPoint ? formatLargeNumber(openInterestPoint.value) : 'N/A',
+          volume:
+            candlestickPoint.volume !== undefined
+              ? formatLargeNumber(candlestickPoint.volume)
+              : 'N/A',
+          oi:
+            candlestickPoint.oi !== undefined
+              ? formatLargeNumber(candlestickPoint.oi)
+              : candlestickPoint.open_interest !== undefined
+              ? formatLargeNumber(candlestickPoint.open_interest)
+              : 'N/A',
         });
       }
     });
-    
-    if (data && data.length > 0) {
-      const candlestickData = [];
-      const volumeData = [];
-      const openInterestData = [];
 
-      data.forEach(d => { /* ... data preparation logic ... */ });
+    if (data && data.length > 0) {
+      const candlestickData = data
+        .map((d) => ({
+          time: normalizeChartTime(d.time || d.timestamp || d.date),
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+          volume: d.volume,
+          oi: d.oi !== undefined ? d.oi : d.open_interest,
+        }))
+        .filter((d) => d.time !== undefined);
 
       candlestickSeries.setData(candlestickData);
-      volumeSeries.setData(volumeData);
-      openInterestSeries.setData(openInterestData);
 
-      // Set initial legend to the last candle
       const lastCandle = candlestickData[candlestickData.length - 1];
-      setLegendData({
+      if (lastCandle) {
+        setLegendData({
           open: lastCandle.open.toFixed(2),
           high: lastCandle.high.toFixed(2),
           low: lastCandle.low.toFixed(2),
           close: lastCandle.close.toFixed(2),
-          volume: formatLargeNumber(volumeData[volumeData.length - 1].value),
-          oi: formatLargeNumber(openInterestData[openInterestData.length - 1].value),
-      });
-      
+          volume: formatLargeNumber(lastCandle.volume),
+          oi: formatLargeNumber(lastCandle.oi),
+        });
+      } else {
+        setLegendData(null);
+      }
+
       let rightOffset = 10;
-      switch (timeframe) { /* ... zoom logic ... */ }
-      chart.timeScale().applyOptions({ rightOffset });
+      switch (timeframe) {
+        case '1D':
+          rightOffset = 5;
+          break;
+        case '1W':
+          rightOffset = 10;
+          break;
+        case '1M':
+          rightOffset = 20;
+          break;
+        case '1Y':
+          rightOffset = 30;
+          break;
+        default:
+          rightOffset = 10;
+      }
+
+      // ✅ Time axis formatting for intraday data
+      chart.timeScale().applyOptions({
+        rightOffset,
+        timeVisible: true, // show HH:mm
+        secondsVisible: false,
+        tickMarkFormatter: (time, tickMarkType, locale) => {
+          const date = new Date(time * 1000);
+          if (['1min', '5min', '30min', '1hour'].includes(timeframe)) {
+            return date.toLocaleTimeString(locale, {
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+          }
+          return date.toLocaleDateString(locale, {
+            day: '2-digit',
+            month: 'short',
+          });
+        },
+      });
     }
-    
+
+    const handleResize = () => {
+      if (chartRef.current) {
+        chartRef.current.resize(
+          chartContainerRef.current.clientWidth,
+          chartContainerRef.current.clientHeight
+        );
+      }
+    };
+
     window.addEventListener('resize', handleResize);
-    return () => { /* ... cleanup logic ... */ };
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
   }, [data, timeframe]);
 
   return (
     <div ref={chartContainerRef} className="chart-container">
-      {/* --- NEW: The custom legend component --- */}
       {legendData && (
         <div className="legend">
           <div className="legend-item">
-            O <span style={{ color: legendData.open >= legendData.close ? '#26a69a' : '#ef5350' }}>{legendData.open}</span>
+            O{' '}
+            <span
+              style={{
+                color:
+                  parseFloat(legendData.open) >= parseFloat(legendData.close)
+                    ? '#26a69a'
+                    : '#ef5350',
+              }}
+            >
+              {legendData.open}
+            </span>
           </div>
           <div className="legend-item">
             H <span style={{ color: '#26a69a' }}>{legendData.high}</span>
@@ -92,13 +201,23 @@ const ChartComponent = ({ data, timeframe }) => {
             L <span style={{ color: '#ef5350' }}>{legendData.low}</span>
           </div>
           <div className="legend-item">
-            C <span style={{ color: legendData.open >= legendData.close ? '#26a69a' : '#ef5350' }}>{legendData.close}</span>
+            C{' '}
+            <span
+              style={{
+                color:
+                  parseFloat(legendData.open) >= parseFloat(legendData.close)
+                    ? '#26a69a'
+                    : '#ef5350',
+              }}
+            >
+              {legendData.close}
+            </span>
           </div>
           <div className="legend-item">
             Vol <span>{legendData.volume}</span>
           </div>
           <div className="legend-item">
-            OI <span>{legendData.open_interest}</span>
+            OI <span>{legendData.oi}</span>
           </div>
         </div>
       )}
